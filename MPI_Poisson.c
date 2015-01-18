@@ -109,6 +109,7 @@ void Debug(char *mesg, int terminate)
 
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 void Setup_MPI_Datatypes()
 {
   Debug("Setup_MPI_Datatypes", 0);
@@ -142,6 +143,8 @@ void Exchange_Borders()
 
 
 
+=======
+>>>>>>> parent of 05b86a7... Exchanging border modified
 =======
 >>>>>>> parent of 05b86a7... Exchanging border modified
 void Setup_Proc_Grid(int argc, char **argv)
@@ -322,11 +325,17 @@ void Solve()
     Debug("Do_Step 0", 0);
     delta1 = Do_Step(0);
 <<<<<<< HEAD
+<<<<<<< HEAD
    Exchange_Borders();
 
     Debug("Do_Step 1", 0);
     delta2 = Do_Step(1);
     Exchange_Borders(); 
+=======
+
+    Debug("Do_Step 1", 0);
+    delta2 = Do_Step(1);
+>>>>>>> parent of 05b86a7... Exchanging border modified
 =======
 
     Debug("Do_Step 1", 0);
@@ -387,8 +396,11 @@ int main(int argc, char **argv)
   Setup_Grid();
 
 <<<<<<< HEAD
+<<<<<<< HEAD
   Setup_MPI_Datatypes();
 
+=======
+>>>>>>> parent of 05b86a7... Exchanging border modified
 =======
 >>>>>>> parent of 05b86a7... Exchanging border modified
   Solve();
