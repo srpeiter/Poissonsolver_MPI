@@ -65,7 +65,7 @@ void start_timer()
 {
   if (!timer_on)
   {
-    MPI_Barrier(grid_comm);
+    MPI_Barrier(MPI_COMM_WORLD);
     ticks = clock();
     wtime = MPI_Wtime();
     timer_on = 1;
@@ -134,15 +134,15 @@ void Exchange_Borders()
 {
   Debug("Exchange_Borders", 0);
 
-  MPI_Sendrecv(&phi[1][1], 1, border_type[Y_DIR], proc_top, 0, &phi[1][dim[Y_DIR]-1], 1, border_type[Y_DIR], proc_bottom, 0, grid_comm, &status);
+  MPI_Sendrecv(&phi[1][1], 1, border_type[Y_DIR], proc_top, 0, &phi[1][0], 1, border_type[Y_DIR], proc_bottom, 0, grid_comm, &status);
 
-  MPI_Sendrecv(&phi[1][dim[X_DIR]-2], 1, border_type[Y_DIR], proc_bottom, 0, &phi[1][0], 1, border_type[Y_DIR], proc_top, 0, grid_comm, &status);
-
-
-  MPI_Sendrecv(&phi[1][1], 1, border_type[X_DIR], proc_left, 0, &phi[dim[X_DIR]-1][1], 1, border_type[X_DIR], proc_right, 0, grid_comm, &status);
+  MPI_Sendrecv(&phi[dim[X_DIR]-1][1], 1, border_type[Y_DIR], proc_bottom, 0, &phi[dim[X_DIR]-1][0], 1, border_type[Y_DIR], proc_top, 0, grid_comm, &status);
 
 
-  MPI_Sendrecv(&phi[dim[X_DIR]-2][1], 1, border_type[X_DIR], proc_right, 0, &phi[0][1], 1, border_type[X_DIR], proc_left, 0, grid_comm, &status);
+  MPI_Sendrecv(&phi[1][1], 1, border_type[X_DIR], proc_left, 0, &phi[0][1], 1, border_type[X_DIR], proc_right, 0, grid_comm, &status);
+
+
+  MPI_Sendrecv(&phi[1][dim[Y_DIR]-1], 1, border_type[X_DIR], proc_right, 0, &phi[1][dim[Y_DIR]-1], 1, border_type[X_DIR], proc_left, 0, grid_comm, &status);
 
 }
 
@@ -325,16 +325,13 @@ void Solve()
   {
     Debug("Do_Step 0", 0);
     delta1 = Do_Step(0);
-   Exchange_Borders();
+    void Exchange_Borders();
 
     Debug("Do_Step 1", 0);
     delta2 = Do_Step(1);
-    Exchange_Borders(); 
+    void Exchange_Borders(); 
 
     delta = max(delta1, delta2);
-
-    //MPI_Allreduce(&delta, &global_delta, 1, MPI_DOUBLE, MPI_MAX, grid_comm);
-
     count++;
   }
 
@@ -385,7 +382,7 @@ int main(int argc, char **argv)
 
   Setup_Grid();
 
-  Setup_MPI_Datatypes();
+  void Setup_MPI_Datatypes();
 
   Solve();
 
