@@ -200,7 +200,7 @@ dim[X_DIR] += 2;
 double Do_Step(int parity)
 {
   int x, y;
-  double old_phi;
+  double old_phi, c , omega=1.95;
   double max_err = 0.0;
 
 /* calculate interior of grid */
@@ -209,8 +209,11 @@ double Do_Step(int parity)
 	  if ((x + offset[X_DIR] + y + offset[Y_DIR]) % 2 == parity && source[x][y] != 1)
 	  {
 	    old_phi = phi[x][y];
-		phi[x][y] = (phi[x + 1][y] + phi[x - 1][y] +
-					phi[x][y + 1] + phi[x][y - 1]) * 0.25;
+		c = ((phi[x + 1][y] + phi[x - 1][y] +
+					phi[x][y + 1] + phi[x][y - 1]) * 0.25) - old_phi;
+		
+		phi[x][y]=old_phi + c*omega;
+
 		if (max_err < fabs(old_phi - phi[x][y]))
 		  max_err = fabs(old_phi - phi[x][y]);
 	  }
@@ -243,6 +246,7 @@ void Solve()
 
 	      delta = max(delta1, delta2);
 
+	      if (count%100 ==0)
 	      MPI_Allreduce(&delta, &global_delta, 1, MPI_DOUBLE, MPI_MAX, grid_comm);
 
 	      count++;
