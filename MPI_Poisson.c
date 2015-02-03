@@ -87,16 +87,16 @@ void stop_timer()
    }
 }
 
-void print_timer()
+void print_timer(char process[])
 {
   if (timer_on)
   {
     stop_timer();
-    printf("(%i) Elapsed Wtime: %14.6f s (%5.1f%% CPU)\n", proc_rank, wtime, 100.0*ticks* (1.0 / CLOCKS_PER_SEC) / wtime);		
+    printf("(%i) Elapsed Wtime of process %s: %14.6f s (%5.1f%% CPU)\n", proc_rank,process, wtime, 100.0*ticks* (1.0 / CLOCKS_PER_SEC) / wtime);		
     resume_timer();
   }
   else
-    printf("(%i) Elapsed Wtime: %14.6f s (%5.1f%% CPU)\n", proc_rank, wtime, 100.0* ticks * (1.0 / CLOCKS_PER_SEC) / wtime);
+    printf("(%i) Elapsed Wtime of process %s: %14.6f s (%5.1f%% CPU)\n", proc_rank,process, wtime, 100.0* ticks * (1.0 / CLOCKS_PER_SEC) / wtime);
 }
 
 void Debug(char *mesg, int terminate)
@@ -200,7 +200,9 @@ dim[X_DIR] += 2;
 double Do_Step(int parity)
 {
   int x, y;
-  double old_phi, c , omega=1.95;
+
+  double old_phi, c, omega=1.95 ;
+
   double max_err = 0.0;
 
 /* calculate interior of grid */
@@ -209,10 +211,19 @@ double Do_Step(int parity)
 	  if ((x + offset[X_DIR] + y + offset[Y_DIR]) % 2 == parity && source[x][y] != 1)
 	  {
 	    old_phi = phi[x][y];
+
 		c = ((phi[x + 1][y] + phi[x - 1][y] +
 					phi[x][y + 1] + phi[x][y - 1]) * 0.25) - old_phi;
 		
 		phi[x][y]=old_phi + c*omega;
+
+	    // include the SOR part with c and omega 
+	    // 
+		c = ((phi[x + 1][y] + phi[x - 1][y] +
+					phi[x][y + 1] + phi[x][y - 1]) * 0.25) - old_phi;
+
+		phi[x][y]= old_phi + omega*c;
+
 
 		if (max_err < fabs(old_phi - phi[x][y]))
 		  max_err = fabs(old_phi - phi[x][y]);
@@ -226,7 +237,12 @@ void Solve()
   int count = 0;
   double delta, global_delta;
   double delta1, delta2;
- 
+  //char filename2[40];
+  //FILE *pf;
+
+  //sprintf(filename2,"errorfunction%i", proc_rank);
+  //if ((pf = fopen(filename2, "w"))==NULL)
+         	// Debug("Solve : fopen failed", 1);
   Debug("Solve", 0);
 
 /* give global_delta a higher value then precision_goal */
@@ -246,13 +262,25 @@ void Solve()
 
 	      delta = max(delta1, delta2);
 
-	      if (count%100 ==0)
+          //fprintf( pf, " %f\n", delta);
+
+
+
+	      //if (count%10 ==0)
+
+
+          
+         
+
+
 	      MPI_Allreduce(&delta, &global_delta, 1, MPI_DOUBLE, MPI_MAX, grid_comm);
 
 	      count++;
 
 	    
 	    }
+
+	    // fclose(pf);
 
   printf("Number of iterations : %i from processor %i\n", count, proc_rank);
 }
@@ -374,21 +402,35 @@ void Setup_MPI_Datatypes()
 int main(int argc, char **argv)
 {
 	MPI_Init(&argc, &argv);
-	Setup_Proc_Grid(argc, argv);	
 
-	start_timer();
+	
+
+	Setup_Proc_Grid(argc, argv);
+	start_timer();	
+
+	
 
 	Setup_Grid();
 
+	print_timer("Setting_up_grid");
+
 	Setup_MPI_Datatypes();
+
+	print_timer("Setting_datatypes");	
 
 	Solve();
 
+	print_timer("Solve");
+
 	Write_Grid();
 
-	print_timer();
+	print_timer("Write_grid");
 
 	Clean_Up();
+
+	print_timer("Clean_up");
+
+	stop_timer();
 	
 	MPI_Finalize();
 	
