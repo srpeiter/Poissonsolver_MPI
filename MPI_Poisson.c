@@ -43,9 +43,14 @@ int timer_on = 0;		    /* is timer running? */
 double **phi;		 	    /* grid pointer*/
 int **source;			    /* TRUE if subgrid element is a source */
 int dim[2];			        /* grid dimensions */
+/* global parameters, memory allocated in InitCG*/
+  double **pCG, **rCG, **vCG;
+  double global_residue;
+
+
 
 void Setup_Grid();
-double Do_Step(int parity);
+void Do_Step();
 void Solve();
 void Write_Grid();
 void Clean_Up();
@@ -55,6 +60,8 @@ void resume_timer();
 void stop_timer();
 void print_timer();
 void Exchange_Borders();
+void InitCG();
+
 
 void start_timer()
 {
@@ -115,6 +122,8 @@ void Setup_Grid()
   FILE *f;
 
   Debug("Setup_Subgrid", 0);
+
+
 if(proc_rank == 0)
 {
 	 f = fopen("input.dat", "r");
@@ -143,6 +152,8 @@ dim[X_DIR] = upper_offset[X_DIR] - offset[X_DIR];
 dim[Y_DIR] += 2;
 dim[X_DIR] += 2;
 
+
+
 /* allocate memory */
   if ((phi = malloc(dim[X_DIR] * sizeof(*phi))) == NULL)
     Debug("Setup_Subgrid : malloc(phi) failed", 1);
@@ -152,7 +163,7 @@ dim[X_DIR] += 2;
 	Debug("Setup_Subgrid : malloc(*phi) failed", 1);
   if ((source[0] = malloc(dim[Y_DIR] * dim[X_DIR] * sizeof(**source))) == NULL)
     Debug("Setup_Subgrid : malloc(*source) failed", 1);
-  for (x = 1; x < dim[X_DIR]; x++)  /*memory reserveren*/
+  for (x = 1; x < dim[X_DIR]; x++)  /*reserve memory*/
   {
     phi[x] = phi[0] + x * dim[Y_DIR];
 	source[x] = source[0] + x * dim[Y_DIR];
@@ -193,11 +204,14 @@ dim[X_DIR] += 2;
   }
   while (s==3);
 
+  InitCG();
+
   if(proc_rank == 0)
 		 fclose(f);							 /*only process 0 may close file */
 }
 
-double Do_Step(int parity)
+/*
+double Do_Step(int parity) 
 {
   int x, y;
 
@@ -205,7 +219,7 @@ double Do_Step(int parity)
 
   double max_err = 0.0;
 
-/* calculate interior of grid */
+// calculate interior of grid 
   for (x = 1; x < dim[X_DIR] - 1; x++)
 	for (y = 1; y < dim[Y_DIR] - 1; y++)
 	  if ((x + offset[X_DIR] + y + offset[Y_DIR]) % 2 == parity && source[x][y] != 1)
@@ -218,7 +232,7 @@ double Do_Step(int parity)
 		phi[x][y]=old_phi + c*omega;
 
 	    // include the SOR part with c and omega 
-	    // 
+	    
 		c = ((phi[x + 1][y] + phi[x - 1][y] +
 					phi[x][y + 1] + phi[x][y - 1]) * 0.25) - old_phi;
 
@@ -230,13 +244,64 @@ double Do_Step(int parity)
 	  }
 
   return max_err;
+}  */
+
+void Do_Step()
+{
+  int x, y;    
+  double a, g, global_pdotv, pdotv, global_new_rdotr, new_rdotr;
+
+  /* Calculate "v" in interior of my grid (matrix-vector multiply) */
+  for (x = 1; x < dim[X_DIR] - 1; x++)
+    for (y = 1; y < dim[Y_DIR] - 1; y++)
+    {
+      vCG[x][y] = pCG[x][y];
+      if (source[x][y] != 1)     /* only if point is not fixed  */
+        vCG[x][y] -=  0.25 *(pCG[x + 1][y] + pCG[x - 1][y] +
+	                     pCG[x][y + 1] + pCG[x][y - 1]) ;
+    }
+
+  pdotv = 0;
+  for (x = 1; x < dim[X_DIR] - 1; x++)
+    for (y = 1; y < dim[Y_DIR] - 1; y++)
+      pdotv += pCG[x][y] * vCG[x][y];
+
+  MPI_Allreduce(&pdotv, &global_pdotv, 1, MPI_DOUBLE, 
+                MPI_SUM, grid_comm);
+
+  a  = global_residue / global_pdotv;
+
+  for (x = 1; x < dim[X_DIR] - 1; x++)
+    for (y = 1; y < dim[Y_DIR] - 1; y++)
+      phi[x][y] += a * pCG[x][y];
+
+  for (x = 1; x < dim[X_DIR] - 1; x++)
+    for (y = 1; y < dim[Y_DIR] - 1; y++)
+      rCG[x][y] -= a * vCG[x][y];
+
+  new_rdotr = 0;
+  for (x = 1; x < dim[X_DIR] - 1; x++)
+    for (y = 1; y < dim[Y_DIR] - 1; y++)
+      new_rdotr += rCG[x][y] * rCG[x][y];
+ 
+  MPI_Allreduce(&new_rdotr, &global_new_rdotr, 1, MPI_DOUBLE, 
+                MPI_SUM, grid_comm);
+
+  g = global_new_rdotr / global_residue;
+  global_residue = global_new_rdotr;
+
+  for (x = 1; x < dim[X_DIR] - 1; x++)
+    for (y = 1; y < dim[Y_DIR] - 1; y++)
+      pCG[x][y] = rCG[x][y] + g * pCG[x][y];
 }
+
+
 
 void Solve()
 {
   int count = 0;
-  double delta, global_delta;
-  double delta1, delta2;
+  //double delta, global_delta;
+  //double delta1, delta2;
   //char filename2[40];
   //FILE *pf;
 
@@ -246,21 +311,22 @@ void Solve()
   Debug("Solve", 0);
 
 /* give global_delta a higher value then precision_goal */
-	global_delta = 2 * precision_goal;
+	// global_delta = 2 * precision_goal;
 
-	while (global_delta > precision_goal && count < max_iter)
+	while (global_residue> precision_goal && count < max_iter)
 		{
-	      Debug("Do_Step 0", 0);
-	      delta1 = Do_Step(0);
+	      //Debug("Do_Step 0", 0);
+	      //delta1 = Do_Step(0);
 	      
 	      Exchange_Borders();
+	      Do_Step();
 
-	      Debug("Do_Step 1", 0);
-	      delta2 = Do_Step(1);
+	      //Debug("Do_Step 1", 0);
+	      //delta2 = Do_Step(1);
 
-		  Exchange_Borders();
+		  //Exchange_Borders();
 
-	      delta = max(delta1, delta2);
+	      //delta = max(delta1, delta2);
 
           //fprintf( pf, " %f\n", delta);
 
@@ -273,7 +339,7 @@ void Solve()
          
 
 
-	      MPI_Allreduce(&delta, &global_delta, 1, MPI_DOUBLE, MPI_MAX, grid_comm);
+	     // MPI_Allreduce(&delta, &global_delta, 1, MPI_DOUBLE, MPI_MAX, grid_comm);
 
 	      count++;
 
@@ -366,20 +432,20 @@ void Exchange_Borders()
 {
 	Debug("Exchange_Borders", 0);
 
-	MPI_Sendrecv(&phi[1][1], 1, border_type[Y_DIR], proc_top, 0,
-	    	     &phi[1][dim[Y_DIR]-1], 1, border_type[Y_DIR], proc_bottom, 0,
+	MPI_Sendrecv(&pCG[1][1], 1, border_type[Y_DIR], proc_top, 0,
+	    	     &pCG[1][dim[Y_DIR]-1], 1, border_type[Y_DIR], proc_bottom, 0,
 	    	     grid_comm, &status); /* all traffic in direction "top" */
 
-	MPI_Sendrecv(&phi[1][dim[Y_DIR]-2], 1, border_type[Y_DIR], proc_bottom, 0,
-	      	     &phi[1][0], 1, border_type[Y_DIR], proc_top, 0,
+	MPI_Sendrecv(&pCG[1][dim[Y_DIR]-2], 1, border_type[Y_DIR], proc_bottom, 0,
+	      	     &pCG[1][0], 1, border_type[Y_DIR], proc_top, 0,
 	      	     grid_comm, &status); /* all traffic in direction "bottom" */
 
-	MPI_Sendrecv(&phi[1][1], 1, border_type[X_DIR], proc_left, 0,
-	        	 &phi[dim[X_DIR]-1][1], 1, border_type[X_DIR], proc_right, 0,
+	MPI_Sendrecv(&pCG[1][1], 1, border_type[X_DIR], proc_left, 0,
+	        	 &pCG[dim[X_DIR]-1][1], 1, border_type[X_DIR], proc_right, 0,
 	        	 grid_comm, &status); /* all traffic in direction "left" */
 
-	MPI_Sendrecv(&phi[dim[X_DIR]-2][1], 1, border_type[X_DIR], proc_right, 0,
-	          	 &phi[0][1], 1, border_type[X_DIR], proc_left, 0,
+	MPI_Sendrecv(&pCG[dim[X_DIR]-2][1], 1, border_type[X_DIR], proc_right, 0,
+	          	 &pCG[0][1], 1, border_type[X_DIR], proc_left, 0,
 	          	 grid_comm, &status); /* all traffic in direction "right" */
 }
 
@@ -396,6 +462,40 @@ void Setup_MPI_Datatypes()
 	MPI_Type_vector(dim[Y_DIR] - 2, 1, 1,
 	        	    MPI_DOUBLE, &border_type[X_DIR]);
     MPI_Type_commit(&border_type[X_DIR]);
+}
+
+void InitCG()
+{
+  int x, y;
+  double rdotr=0;
+
+  /* allocate memory for CG arrays*/
+  pCG = malloc(dim[X_DIR] * sizeof(*pCG));
+  pCG[0] = malloc(dim[X_DIR] * dim[Y_DIR] * sizeof(**pCG));
+  for (x = 1; x < dim[X_DIR]; x++) pCG[x] = pCG[0] + x * dim[Y_DIR];
+
+  rCG = malloc(dim[X_DIR] * sizeof(*rCG));
+  rCG[0] = malloc(dim[X_DIR] * dim[Y_DIR] * sizeof(**rCG));
+  for (x = 1; x < dim[X_DIR]; x++) rCG[x] = rCG[0] + x * dim[Y_DIR];
+
+  vCG = malloc(dim[X_DIR] * sizeof(*vCG));
+  vCG[0] = malloc(dim[X_DIR] * dim[Y_DIR] * sizeof(**vCG));
+  for (x = 1; x < dim[X_DIR]; x++) vCG[x] = vCG[0] + x * dim[Y_DIR];
+
+  /* initiate rCG and pCG */
+  for (x = 1; x < dim[X_DIR] - 1; x++)
+    for (y = 1; y < dim[Y_DIR] - 1; y++)
+    {
+      rCG[x][y] = 0;
+      if (source[x][y] != 1)
+        rCG[x][y] = 0.25 *(phi[x + 1][y] + phi[x - 1][y] +
+	                   phi[x][y + 1] + phi[x][y - 1]) - phi[x][y];
+      pCG[x][y] = rCG[x][y];
+      rdotr += rCG[x][y]*rCG[x][y];
+    }
+
+  /* obtain the global_residue also for the initial phi  */
+  MPI_Allreduce(&rdotr, &global_residue, 1, MPI_DOUBLE, MPI_SUM, grid_comm);
 }
 
 
